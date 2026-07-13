@@ -1,0 +1,168 @@
+---
+title: "03 - Interpolate Census Data to Select Administrative Units"
+output: html_document
+---
+
+
+This script interpolates Census data to select Chicago administrative units.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+source('functions/f02c--interpolation--admin-police.R')
+
+#' Chicago tract-level Census data, with original tract shapes.
+l.geo.census.tract_orig <- 
+  dir('data', 'Chicago.+Year-[0-9-]{9}--saved', full.names = TRUE) %>% 
+  qs2::qs_read()
+```
+
+
+## Chicago Administrative Units
+
+
+The Chicago Data Portal provides access to a number of Chicago administrative boundaries.  In addition to the city boundaries, which we used in the previous script, we'll also download geometry for the following:
+
+* Community Areas
+* Police Districts, Effective 2012 December 19
+* Police Beats, Effective 2012 December 19
+
+Having access to multiple levels and temporal periods of administrative units affords us great flexibility in exploring crime data.  As part of this, we will interpolate tract-level Census data to the different administrative levels.  Instead of using the standardized Census tracts we built in the previous script, we'll use the original Census tract shapes for each year; this is to minimize estimation errors that might otherwise propagate from the earlier interpolations.
+
+
+```{r read_administrative}
+#' Named list of all Chicago administrative and police geometries.
+l.geo.admin_pol <- f.read_geo_chi_admin_pol_local_remote(download = FALSE)
+```
+
+
+## Dropping O'Hare-area Units
+
+
+We want to restrict the exploration to crimes within Chicago proper, excluding those taking place at O'Hare International Airport (ORD). For this, we take a two-step process:
+
+1. Select the area encompassing ORD
+1. Subtract that area from the geometry of every administrative geographic dataset
+
+However, a couple of issues will require us to take a couple of additional substeps. First, the O'Hare region is not clearly defined: the O'Hare community area includes residential areas outside of the airport, and which are part of Chicago proper.  Second, a simple subtraction leaves behind tiny scrap polygons that must be cleaned up.
+
+Though Chicago's O'Hare community area (orange) includes residential areas, there is a subset of police beats (blue), Sector 5 of District 16, that cover only the airport.  We'll use these beats to define the area to be subtracted from the administrative layers:
+
+
+```{r map_ord_basic}
+#' Map the O'Hare Community Area (orange) and O'Hare-area police beats (blue).
+mapview(l.geo.admin_pol$admin$comm %>% 
+            filter(community == 'OHARE'),
+        col.region = PAL.CB[2],
+        layer.name = "O'Hare Community Area") +
+  mapview(l.geo.admin_pol$police$beat %>%
+            filter(id_district == 16, id_sector == 5),
+          col.region = PAL.CB[3],
+          layer.name = "O'Hare Police Beats (D16, S5)")
+```
+
+
+Before subtracting the beats from the other geometries, we'll need to union the beats together to create a single polygon (otherwise the subtraction will not be successful, as each beat polygon will be individually subtracted from the main geometry, leaving multiple layers missing only a subregion of the airport).
+
+Also, note that the layers do not perfectly overlap: the police beats extend beyond the community area boundaries in a couple of areas, and in one tiny spot on the southern border of the airport, the community area visibly extends beyond the police beats. Furthermore, even though the beats seem to cover the airport completely except for that tiny area, the borders along the rest of the are not *exactly* the same in all places.  Subtracting the beats from the main geometry leaves a ring of scraps:
+
+
+```{r message=FALSE, subtract_ord_1_map, warning=FALSE}
+#' Union the O'Hare police beats into a single polygon. Subtract from the
+#' community area geometry and map.
+(geo.beat.d16s5 <- 
+  l.geo.admin_pol$police$beat %>%
+  filter(id_district == 16, id_sector == 5) %>%
+  summarize(geometry = st_union(geometry))) %>%
+  st_difference(l.geo.admin_pol$admin$comm, .) %>% 
+  filter(community == 'OHARE') %>% 
+  mapview(col.region = PAL.CB[2])
+```
+
+
+To remove the scraps, we add a tiny buffer (0.5m; note the division to approximate decimal degrees as we have turned off S2 processing for smoother buffers) to the unioned beats polygon so that it extends just beyond the main geometry; this will clean up *almost* all the scraps that would have been left along the border from imperfect layering:
+
+
+```{r subtract_ord_2_map, message=FALSE, warning=FALSE}
+#' Add a buffer (0.5m in decimal degrees), then subtract from community areas.
+#' Map remaining O'Hare community area.
+geo.beat.d16s5 %>%
+  st_buffer(0.5/111320) %>%
+  st_difference(l.geo.admin_pol$admin$comm, .) %>% 
+  filter(community == 'OHARE') %>% 
+  mapview(col.region = PAL.CB[2])
+```
+
+
+Remember that tiny spot in the main geometry that extended beyond the police beats?  It survived the subtraction and now we need to deal with it.  First, let's examine the results of the subtraction, focusing only on the O'Hare community area:
+
+
+```{r subtract_ord_3, message=FALSE, warning=FALSE}
+#' Add a buffer (0.5m in decimal degrees), then subtract from community areas.
+#' Examine remaining O'Hare observation.
+geo.beat.d16s5 %>% 
+  st_buffer(0.5/111320) %>% 
+  st_difference(l.geo.admin_pol$admin$comm, .) %>% 
+  filter(community == 'OHARE')
+```
+
+
+The geometry is a multipolygon, meaning that it comprises two or more distinct polygons, which may be discontiguous, that are counted together as being a single observation, a single unit.  We can dissolve the multipolygon into its constituent pieces.  Then, if we keep only the largest one, that will drop all the scraps:
+
+
+```{r subtract_ord_4_map, message=FALSE, warning=FALSE}
+#' Add a buffer, subtract from community areas. Cast to polygon, then keep the
+#' largest polygon for each community area.
+geo.beat.d16s5 %>% 
+  st_buffer(0.5/111320) %>% 
+  st_difference(l.geo.admin_pol$admin$comm, .) %>% 
+  filter(community == 'OHARE') %>% 
+  st_cast('POLYGON') %>% 
+  mutate(area = st_area(geometry)) %>% 
+  group_by(!!sym('id_comm_area')) %>% 
+  slice_max(area) %>% 
+  ungroup() %>% 
+  select(-area) %>% 
+  f.assign_class(c('sf', 'data.frame')) %>% 
+  mapview(col.region = PAL.CB[2],
+          layer.name = "Remainder of O'Hare Community Area")
+```
+
+
+Now we repeat this process for all the different Chicago administrative and police geometries.
+
+
+```{r drop_ord, warning=FALSE}
+#' Drop the O'Hare regions from all administrative and police geometries.
+l.geo.chi_pol.no_ord <- f.trim_ohare(l.geo.admin_pol, save = TRUE)
+```
+
+
+## Interpolating Census Values to Chicago Administrative and Police Units
+
+
+The areal interpolation from Census tract to the various administrative and police geometries works just as it did for the Census-tract reshaping process covered in the previous script.  Note that the Census data for each year (2020--2024) are treated separately:  we have 15 years of data ✕ 7 administrative geometries = 105 datasets.
+
+
+```{r interpolation}
+#' Areal interpolation, original Census tracts to all administrative and police
+#' geometries.
+tictoc::tic()
+l.geo.interpolated.chi_pol <- 
+  f.interpolate_census_chi_pol_all(l.geo.census.tract_orig,
+                                   l.geo.chi_pol.no_ord,
+                                   suffix = 'No-ORD',
+                                   save   = TRUE)
+tictoc::toc() # 30s w/ 10 threads
+```
+
+
+Here is an example map of the 2024 population by community area:
+
+
+```{r map_comm_area_pop.t}
+mapview(l.geo.interpolated.chi_pol$Admin$`Community-Area`$`2024`,
+        layer.name = 'Community Area<br>Population',
+        zcol       = 'pop.t')
+```

@@ -1,0 +1,458 @@
+---
+title: "02 - Standardizing Census Tract Boundaries"
+output: html_document
+---
+
+
+This script standardizes Census tract boundaries across years.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+source('functions/f03b--data--census.R')
+
+#' Read Census data locally, assuming the pre-specified file name was used, and
+#' assuming there is only one such file in the directory.
+l.geo.census_cook <- 
+  dir('data', 'Census-Variables--State-17--County-031', full.names = TRUE) %>%
+  qs2::qs_read()
+
+#' Either download & save Chicago city geometry (`T`), or read it locally (`F`).
+geo.chi <- f.read_chi_local_remote(download = FALSE)
+```
+
+
+The Census tracts can change shapes over time.  Here is an example in the South Loop area:
+
+
+```{r map_south_loop_basic}
+#' Extracting the map from the map object is blocking the Viewer pane from
+#' receiving the map; forcing it to renders a too-short map, so increase the 
+#' Leaflet viewer height.
+mapviewOptions(leafletHeight = 575)
+
+#' Vector of layer names for 3301 tracts map.
+v.3301_layer_names <- c('2010-2019, raw',
+                        '2020-2024, raw',
+                        '2010-2019, manually edited',
+                        '2020-2024, manually edited')
+
+#' Map older and newer 3301 tract geometries; add Leaflet legend.
+(map.3301_raw <- 
+  mapview(l.geo.census_cook$`2019` %>% 
+            filter(str_detect(Name, '3301')),
+          alpha.region = 0.4,
+          col.region   = PAL.CB[2],
+          layer.name   = v.3301_layer_names[1],
+          legend       = FALSE) +
+  mapview(l.geo.census_cook$`2020` %>% 
+            filter(str_detect(Name, '3301')),
+          alpha.region = 0.4,
+          col.region   = PAL.CB[3],
+          layer.name   = v.3301_layer_names[2],
+          legend       = FALSE))@map %>% 
+  leaflet::addLegend(colors  = PAL.CB[2:3],
+                     labels  = v.3301_layer_names[1:2],
+                     opacity = 1) %>% 
+  htmltools::html_print()
+```
+
+
+We will standardize the Census tract geometry throughout the city across all years to comport with the newest geometry (2024).
+
+
+<br>
+
+
+## Pre-processing:  Laying the Groundwork for Standardizing Boundaries
+
+
+The yearly datasets downloaded from the Census include all tracts in Cook County, which extends beyond the Chicago city limits. The geometry also extends into Lake Michigan (not only the large zero-population tract, but also individual tracts with area covering the lake).
+
+
+```{r map_cook_chi_basic}
+#' Cook County tracts, 2010, with Chicago boundaries.
+mapview(l.geo.census_cook$`2010`,
+        col.region = PAL.CB[2],
+        layer.name = 'Cook County - Census Tracts - 2010') +
+  mapview(geo.chi %>% transmute(), #' Drop ID variable
+          col.region = PAL.CB[3],
+          layer.name = 'Chicago City Boundaries')
+```
+
+
+<br>
+
+
+### Previewing Pre-processing Steps
+
+
+Before we can standardize the Census boundaries across years, we first need to accomplish two main tasks:
+
+1. Drop all tracts outside the City of Chicago
+1. Trim the shoreline
+
+The first is important because we want to limit the data exploration (in later scripts) to crimes within Chicago proper.  The second is important because we are going to use areal interpolation (more on this later) to estimate where people and households are located; this rests on the assumption that people and households are spread evenly throughout an area, and because no one lives in the lake, such assumption will not be met and the interpolation results will be inaccurate.
+
+There are some additional issues to consider, as well, which will be discussed.
+
+Here we'll preview what the pre-processing results will look like at each step before putting it all together near the end.
+
+
+#### Dropping Tracts Outside Chicago
+
+
+To exclude tracts outside the city boundaries, we'll use a multi-step process for each year's Census tracts:
+
+1. Apply a 200m buffer around the city boundaries, then capture all tracts that are fully covered by this area (this captures the vast majority of tracts, missing most of those along the lake shore)
+1. Apply a -425m buffer to the city boundaries, then capture all tracts that intersect with this area (this captures the shoreline tracts, plus most other tracts except some along the periphery)
+1. Combine the above two groups, dropping duplicates
+1. Drop tracts at O'Hare International Airport
+
+
+Here is what the process looks like in action: First expand the city area and get all tracts it completely covers, then shrink the city area and get all tracts that intersect with it. These two groups have a large overlap.
+
+
+```{r chi_tracts_untrimmed_shore, message=FALSE, warning=FALSE}
+#' 1. Apply 200m buffer to capture most tracts, excluding lakeshore tracts.
+(geo.most <- 
+   f.chi_census_most(l.geo.census_cook$`2010`, geo.chi, 'id_chicago')) %>% 
+  head(3)
+
+#' 2. Apply -425m buffer to capture shoreline tracts.
+(geo.shore <- 
+  f.chi_census_shoreline_plus(l.geo.census_cook$`2010`,
+                              geo.chi,
+                              'id_chicago')) %>% 
+  head(3)
+
+#' Both buffers with both groups of selected tracts.
+mapview(st_buffer(geo.chi, 200/111320) %>% transmute(),
+        col.region = PAL.CB[1],
+        layer.name = 'Chi + 200m') +
+  mapview(st_buffer(geo.chi, -450/111320) %>% transmute(),
+          col.region = PAL.CB[9],
+          layer.name = 'Chi - 450m') +
+  mapview(geo.most,  col.region = PAL.CB[2], layer.name = 'Most Tracts') +
+  mapview(geo.shore, col.region = PAL.CB[3], layer.name = 'Shoreline+ Tracts')
+```
+
+
+Finally, combine both groups and drop duplicate tracts and those at O'Hare:
+
+
+```{r chi_tracts_untrimmed_shore, message=FALSE, warning=FALSE}
+#' Combine groups, drop duplicates, and drop ORD tracts.
+(geo.census.chi_untrimmed <-
+  bind_rows(geo.most, geo.shore) %>% 
+  distinct() %>% 
+  filter(!(GEOID %in% V.TRACTS_ORD))) %>% 
+  mapview(layer.name = 'Chicago Census Tracts - Untrimmed Shoreline')
+```
+
+
+#### Trimming the Shoreline
+
+
+Now we'll use the Chicago city boundaries as a big cookie cutter to trim the shoreline tracts. (We'll also trim some little slivers from the Navy Pier tracts.)
+
+
+```{r trim_lakeshore, message=FALSE, warning=FALSE}
+#' Trim the Census tracts to match Chicago boundaries. Map Navy Pier tracts
+(geo.shore_trim <- 
+  st_intersection(geo.chi, geo.census.chi_untrimmed)) %>% 
+  filter(GEOID %in% V.TRACTS_NVY) %>% 
+  mapview(layer.name = 'Navy Pier Tracts - to be trimmed', zcol = 'GEOID')
+
+#' Trim little slivers from two tracts near Navy Pier: Filter to only the tracts
+#' in question. Dissolve each multipolygon into distinct polygons, then keep the
+#' one with the largest area for each `GEOID`. Add the remainder of the tracts
+#' back in. Drop the Chicago ID variable. 
+(geo.census.chi_trimmed.2010 <- 
+  geo.shore_trim %>% 
+  filter(GEOID %in% V.TRACTS_NVY) %>% 
+  st_cast('POLYGON') %>% 
+  mutate(area = st_area(geometry)) %>% 
+  group_by(GEOID) %>% 
+  slice_max(area, n = 1) %>% 
+  ungroup() %>% 
+  select(-area) %>% 
+  bind_rows(geo.shore_trim %>% filter(!(GEOID %in% V.TRACTS_NVY))) %>% 
+  select(-id_chicago) %>% 
+  f.assign_class(c('sf', 'data.frame'))) %>% 
+  mapview(layer.name = 'Chicago Census Tracts - Trimmed Lakeshore')
+```
+
+
+
+#### Additional Issues to Consider
+
+
+There are three other issues we should be aware of as we pre-process the Chicago geometry in preparation for reshaping the tract boundaries:
+
+1. There are a few Census tracts in South Loop (see above) that require special attention because of changes in boundaries over time
+1. Similarly, there are a couple of tracts near Midway International Airport that changed shape over time and need to be adjusted
+1. The geographical concentration of incarcerated persons will skew interpolation results
+
+We will address the first two issues and discuss the third.
+
+
+##### Reshape South Loop Tracts
+
+
+Let's revisit the map of that specific area of South Loop, Census Tract 3301 and its derivatives, at two points in time, 2019 and 2020, but this time with the shoreline trimmed:
+
+
+```{r map_south_loop_basic_revisit, message=FALSE, warning=FALSE}
+#' Named list (2019, 2020), geometry with trimmed South Loop tracts of interest.
+l.geo.census.sth_lp.2019_2020 <- 
+  sapply(
+    c('2019', '2020'),
+    function(yr){
+      #' Extract local geometry.
+      geo <- l.geo.census_cook[[yr]]
+      
+      #' Declare constant.
+      id.chi <- 'id_chicago'
+      
+      #' Get Chicago tracts, drop duplicates, trim shoreline.
+      bind_rows(f.chi_census_most(geo, geo.chi, id.chi),
+                f.chi_census_shoreline_plus(geo, geo.chi, id.chi)) %>% 
+        filter(str_detect(Name, '3301')) %>% 
+        distinct() %>% 
+        f.trim_shoreline(geo.chi, id.chi) %>% 
+        transmute(GEOID, Name, year = yr, pop.t, hh.t)},
+    simplify = FALSE,
+    USE.NAMES = TRUE)
+
+#' Map from list.
+mapview(l.geo.census.sth_lp.2019_2020, col.regions = PAL.CB[2:3])
+```
+
+
+The earlier tract, which, in our data, is in effect 2010--2019, was split into three tracts beginning in 2020. This is a common occurrence, but in this specific instance, it might cause trouble further along as we continue to process the data. The problem here is rooted in the fact that one of the new tracts, 3301.01, mostly covers areas of Lake Shore Drive, Museum Campus, and Northerly Isle, which should contain zero residents. The residents in 3301.01 are concentrated in a small area in its southwestern corner, along Columbus and Lake Shore Drives.
+
+The areal interpolation process (more later) assumes that the demographic counts under consideration are distributed uniformly throughout an areal unit.  This is almost never the case, but most of the time, the actual distribution is close enough that we can use an areal interpolation without too much concern.  In the case of the 3301 tracts, however, the disproportionately large share of the 3301.01 tract will cause that region, in the earlier datasets, to be assigned a too-large share of residents and households.
+
+We can get a better idea of this by examining the population density of the tracts, both within and across years.  Let's look at the 2019 and 2020 data for these tracts, as well as a map:
+
+
+```{r map_south_loop_2019_2020, warning=FALSE}
+#' 
+mapviewOptions(leafletHeight = 575)
+
+#' Palette for South Loop population density.
+pal.5 <- viridisLite::viridis(5)
+
+#' Stack 3301 tracts for 2019 and 2020. Compute area, population density, and,
+#' for 2020 tracts, each tract's proportion of total area and population. Split
+#' into list by year and map in two layers. Hard-code legend bins.
+(map.3301_trimmed <- 
+  (bind_rows(l.geo.census.sth_lp.2019_2020) %>% 
+  mutate(year      = as.factor(year),
+         area      = st_area(geometry),
+         pop_dns   = as.numeric(pop.t / area * 1000),
+         prop_area = ifelse(year == 2020,
+                            as.numeric(area / sum(area[year == 2020])),
+                            NA),
+         prop_pop  = ifelse(year == 2020,
+                            pop.t / sum(pop.t[year == 2020]),
+                            NA),
+         across(where(is.double), ~ round(., 3))) %>% 
+  arrange(Name) %>% 
+  print() %>% 
+  split(.$year) %>% 
+  mapview(alpha.regions = 1,
+          at            = seq(0, 25, 5),
+          col.regions   = pal.5,
+          legend        = FALSE,
+          zcol          = 'pop_dns'))@map %>% 
+  leaflet::addLegend(colors  = pal.5,
+                     labels  = seq(5, 25, 5),
+                     opacity = 1,
+                     title   = htmltools::HTML('Population<br>Density'))) %>% 
+  # #' Leaflet bug with count of individual `zcol` values
+  # suppressWarnings() %>% 
+  #' Force to `Viewer` pane
+  htmltools::html_print()
+```
+
+
+Among the 2020 tracts, the 3301.01 tract has about 24% of the population, but a whopping 67% of the area.  This means that, were we to use the tract shapes as they are, an areal interpolation to reshape the older tract into the three newer tracts would assign about 67% of the total population to the new 3301.01 tract---which would about be nearly triple the correct proportion. This would also result in wildly inaccurate estimates for the other two tracts, as well.
+
+
+To address this problem, I manually edited the 3301.01 tract in [QGIS](https://qgis.org), an open-source GIS program.  This map shows the original tract boundaries and the edited boundaries:
+
+
+```{r map_3301_raw_manual}
+#' Add layers for the manually edited tracts, then map, one layer per dataframe.
+# Add Leaflet legend. Force print to Viewer pane.
+(l.geo.census.sth_lp.2019_2020 %>% 
+  list_assign(
+    `2019 Trimmed` = 
+      st_read(FNM.GEO_3301_10_19, quiet = TRUE) %>% 
+        mutate(year = '2019.1'),
+    `2020 Trimmed` = st_read(FNM.GEO_3301_20_24, quiet = TRUE) %>% 
+        mutate(year = '2020.1')) %>% 
+  mapview(alpha.regions = 1,
+          burst         = 'year',
+          col.region    = PAL.CB[2:5],
+          legend        = FALSE))@map %>% 
+  leaflet::addLegend(colors  = PAL.CB[2:5],
+                     labels  = v.3301_layer_names,
+                     opacity = 1) %>%
+  htmltools::html_print()
+
+#' Restore default option.
+mapviewOptions(leafletHeight = NULL)
+```
+
+
+The boundaries of the 3301.01 tract have been edited to contain only the residential areas of the tract.  This means that when using an areal interpolation to reshape the original tract to comport with the new tracts, the results will be more accurate than with the original raw tract shape.
+
+
+##### Reshape Midway International Airport Tracts
+
+
+There's an issue with the Midway International Airport tract and an adjacent tract.  The northwestern corner of the southeastern tract was reassigned to the main Midway tract sometime between 2011 and 2024.  When reshaping the tracts with an areal interpolation, this will cause a small proportion of residents and households to be incorrectly assigned to the main Midway tract.  To prevent this, we'll reshape the older tracts to conform to the newer shape *before* doing the interpolation.
+
+
+```{r map_mdw}
+#' Stack 2010 and 2024 tracts, identified by year, then filter to MDW tracts.
+#' Split into list, and map with separate layers.
+bind_rows(l.geo.census_cook$`2010` %>% mutate(year = 2010),
+          l.geo.census_cook$`2024` %>% mutate(year = 2024)) %>% 
+  filter(GEOID %in% V.TRACTS_MDW) %>% 
+  mutate(year = factor(year)) %>% 
+  split(.$year) %>%
+  mapview(alpha.region = 0.4, col.regions = PAL.CB[2:3], lwd = 1.5)
+```
+
+
+
+##### Incarcerated Persons
+
+
+There's a tract with a notably large population but few households, when compared to its neighbors and for its size:
+
+
+```{r map_cook_population_basic}
+#' Map the corrections tract and surrounding area.
+(mapview(l.geo.census_cook$`2010` %>% 
+                    transmute(GEOID,
+                              year = 2010,
+                              pop.t,
+                              pop_black,
+                              pop_latinx,
+                              hh.t),
+                  layer.name = 'Total Population',
+                  zcol       = 'pop.t'))@map %>% 
+  leaflet::setView(lng = -87.7, lat = 41.85, zoom = 12)
+```
+
+
+This tract is where the city's detention and corrections facilities are located.  Because the Census counts incarcerated persons as residing at the address of their facility, this skews the population and demographic makeup of the tract.
+
+We will not attempt to correct for this here, but it is a phenomenon that researchers should at least be aware of when conducting analyses with Census tracts including corrections facilities.
+
+
+<br>
+
+
+
+
+#### Pre-processing --- All Years -- Dropping, Trimming, and Additional Issues
+
+
+`f.geo_census_chi()` processes the full list of yearly geometric dataframes as described in the preceding sections.
+
+
+```{r geo_census_chi}
+#' For each year, limit to only the Chicago city tracts.
+tictoc::tic()
+l.geo.census_chi <-
+  f.geo_census_chi(l.geo.census_cook, geo.chi, 'id_chicago', save = TRUE)
+tictoc::toc() # 3s with 10 threads
+
+#' Map a single year by population.
+mapview(l.geo.census_chi$`2010`,
+        layer.name = 'Population - 2010',
+        zcol       = 'pop.t')
+```
+
+
+## Standardizing Census Boundaries
+
+
+Having pre-processed the Census geometry, we are now ready to standardize the tract shape across years.  We're going to use the 2024 geometry as the standard tract shapes.  These should be the same as the tracts for 2020--2023, but sometimes minor adjustments in borders can lead to technical differences even if borders are substantively the same.  To ensure uniformity, we use the 2024 boundaries across all years, even those with ostensibly the same boundaries.
+
+To reshape tract boundaries, we'll be using the [`areal`](https://chris-prener.github.io/areal/) library.  The interpolation both changes the shapes of the tracts and estimates the counts of Census variables within the new boundaries, meaning that values in a given area can be compared across years.
+
+The approach implemented here, which allows the user to specify variable names for the target and source IDs (necessary to re-use a single function in different interpolation scenarios), is not strictly compatible with the `areal` library as published.  To address the incompatibility, I made some minor changes to several functions in the `areal` library (see function comments for further details).
+
+
+```{r message=FALSE, warning=FALSE}
+#' Names of variables to interpolate. Use only two in example for speed.
+v.variables <- c('pop.t', 'hh.t')
+
+#' Get template geometry.
+geo.template <- transmute(l.geo.census_chi[[YR.RESHAPE_TEMPLATE]], GEOID, Name)
+
+#' Geometry for restoring 3301 tract geometry (undoing manual trimming).
+geo.3301.01_orig <- 
+  l.geo.census_cook[[YR.RESTORE_3301.01]] %>% 
+  select(GEOID, Name, all_of(v.variables))
+
+#' Reshape 2010 boundaries to 2024 shapes, interpolating Census variable values.
+#' Restore the full shape for tract 3301.01 (but trim the shoreline). Map.
+(geo.census_chi.rshp.2010 <- 
+  f.interpolate(geo_dough  = l.geo.census_chi$`2010` %>% 
+                               select(GEOID, Name, all_of(v.variables)),
+                geo_cutter = geo.template %>% 
+                               transmute(ID = GEOID),
+                v_vars_ext = v.variables,
+                sid_dough  = 'GEOID',
+                tid_cutter = 'ID',
+                weight_ext = 'total',
+                reshape    = TRUE) %>% 
+  left_join(geo.template %>%
+              st_drop_geometry(),
+            by = 'GEOID') %>%
+  f.restore_geo_3301.01(geo.3301.01_orig, geo.chi, 'id_chicago')) %>%
+  mapview(layer.name = 'Population - 2010',
+          zcol       = 'pop.t')
+```
+
+
+`f.polygon_reshape()` standardizes areal unit shapes across all years.
+
+
+```{r polygon_reshape}
+#' Reshape polygons and interpolate values to new shapes. Restore '3301' tracts
+#' to the newest Census geometry.
+tictoc::tic()
+l.geo.census_chi_rshp <-
+  f.polygon_reshape(l_geo            = l.geo.census_chi,
+                    year_templ       = YR.RESHAPE_TEMPLATE,
+                    geo_3301.01_orig = l.geo.census_cook[[YR.RESTORE_3301.01]],
+                    geo_chi          = geo.chi,
+                    id_chi           = 'id_chicago',
+                    save             = TRUE)
+tictoc::toc() # 70-120s with 10 threads
+```
+
+
+```{r map_chi_rshp_2010_2024}
+#' Map Chicago city boundaries, new 2010 Census dataset (reshaped to 2024
+#' tracts), and 2024 Census dataset (with its own tracts).
+mapview(geo.chi %>% transmute(),
+        col.region = PAL.CB[1],
+        layer.name = 'Chicago City Boundaries') +
+  mapview(l.geo.census_chi_rshp$`2010`,
+          col.region = PAL.CB[2],
+          layer.name = 'ACS-5 2010 (Reshaped to 2024 Tracts)') +
+  mapview(l.geo.census_chi_rshp$`2024`,
+          col.region = PAL.CB[3],
+          layer.name = 'ACS-5 2024 (Tracts)')
+```

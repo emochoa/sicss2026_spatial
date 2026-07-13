@@ -1,0 +1,315 @@
+---
+title: "R Notebook"
+output: html_document
+---
+
+This script demonstrates the use of a spatial join (points-to-polygons) to aggregate crimes to areal units.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#' Load libraries, constants, and functions.
+source('functions/f04--aggregate--crimes.R')
+
+#' Deprivation of property crimes, 2010-2024.
+geo.crime <- 
+  dir('data', 'geo--crime--dep-prop', full.names = TRUE) %>% 
+  qs2::qs_read() %>% 
+  rename(id_community = community)
+
+#' Chicago administrative and police boundaries with Census data.
+#' *PROBLEM WITH* `id_district` *AND* `id_district.1`  *************************
+l.geo.chi_admin_pol.census <- 
+  dir('data', 'Census.*All-Administrative-Police', full.names = TRUE) %>% 
+  qs2::qs_read()
+
+
+#' Chicago administrative and police boundaries without Census data.
+l.geo.chi_admin_pol <- # f.geo_chi_no_census(l.geo.chi_admin_pol.census)
+  dir('data', 'geo--chicago-admin-police--no-ORD', full.names = TRUE) %>% 
+  qs2::qs_read()
+
+
+#' Census datasets.
+l.geo.tracts.census <- 
+  dir('data', 'Census.*Reshaped-to-2024', full.names = TRUE) %>% 
+  qs2::qs_read()
+```
+
+
+## Filter to City
+
+For demonstration purposes, we'll use only the crimes from the year 2010.  We also want to drop events that took place outside the city limits and at both airports. The O'Hare events are easy to drop, as they are in District 16, Sector 5.  The Midway events are a little trickier, because the police beat that covers MDW, 813, also covers nearby residential areas:
+
+
+```{r beat_813}
+#' Filter events to specific beat, then map alongside beat geometry.
+geo.crime %>% 
+  filter(pol_beat == 813) %>% 
+  select(id_crime, pol_beat) %>% 
+  print(n = 3) %>% 
+  mapview(cex        = 3,
+          layer.name = 'Crimes — Police Beat 813',
+          legend     = FALSE) +
+  mapview(l.geo.chi_admin_pol$police$beat %>% 
+            filter(id_beat == 813),
+          col.region = '#999',
+          layer.name = 'Police Beat 813',
+          legend     = FALSE)
+```
+
+
+There is, however, a polygon that covers the entirety of the airport but excludes the nearby neighborhoods:  Census tract 9801.  We can use a spatial join to catch all the events happening within its borders (this includes events with mislabeled beat IDs that nevertheless fall within the tract borders):
+
+
+```{r map_mdw, message=FALSE}
+#' Filter to the beat that covers MDW, then join with tract geometry. Map.
+geo.crime %>% 
+  st_join(l.geo.tracts.census$`2010` %>% 
+            filter(GEOID == GEOID.MDW) %>% 
+            select(GEOID, Name),
+          join            = st_covered_by,
+          duplicate_edges = FALSE,
+          left            = FALSE) %>% 
+  select(id_crime, GEOID) %>% 
+  print(n = 3) %>% 
+  mapview(cex        = 3,
+          layer.name = 'Crimes — Tract 9801',
+          legend     = FALSE) +
+  mapview(l.geo.tracts.census$`2010` %>% 
+            filter(GEOID == GEOID.MDW),
+          col.region = '#999',
+          layer.name = 'Census Tract 9801',
+          legend     = FALSE)
+```
+
+
+However, the join is also capturing events taking place along the borders of the tract, and these are likely events that occurred on the streets surrounding the airport and not in the airport proper.  We'll use a small negative buffer (1m) to prevent this:
+
+
+```{r map_mdw_buffer, message=FALSE, warning=FALSE}
+#' Join crime events with tract geometry (after applying small buffer to shrink
+#' by 1m). Map.
+geo.crime %>% 
+  st_join(l.geo.tracts.census$`2010` %>% 
+            filter(GEOID == GEOID.MDW) %>% 
+            select(GEOID, Name) %>% 
+            st_buffer(-1/111320),
+          join            = st_covered_by,
+          duplicate_edges = FALSE,
+          left            = FALSE) %>% 
+  select(id_crime, GEOID) %>% 
+  print(n = 3) %>% 
+  mapview(cex        = 3,
+          layer.name = 'Crimes — Tract 9801',
+          legend     = FALSE) +
+  mapview(l.geo.tracts.census$`2010` %>% 
+            filter(GEOID == GEOID.MDW),
+          col.region = '#999',
+          layer.name = 'Census Tract 9801',
+          legend     = FALSE)
+```
+
+
+Let's apply the changes and map a sample of events in the year 2010:
+
+
+```{r filter_to_city, message=FALSE, warning=FALSE}
+#' Drop MDW tracts; map sample.
+(geo.crime.no_mdw <- 
+  geo.crime %>% 
+  f.filter_to_city(l.geo.tracts.census$`2010`) %>% 
+  f.drop_mdw_events(l.geo.tracts.census$`2010`)) %>% 
+  print(n = 3) %>% 
+  sample_n(500) %>% 
+  mapview(cex        = 3,
+          layer.name = 'Crime (all years, sample)',
+          legend     = FALSE) +
+  mapview(l.geo.tracts.census$`2010` %>% 
+            filter(GEOID == GEOID.MDW),
+          alpha.region = 1,
+          col.region   = 'springgreen3',
+          layer.name   = 'Census Tract 9801') +
+  mapview(l.geo.chi_admin_pol$admin$city,
+          col.region = '#999',
+          layer.name = 'Chicago',
+          legend     = FALSE)
+```
+
+
+# Aggregate by Areal Unit
+
+
+For these examples, we'll use the community area boundaries.  We'll aggregate crimes to their areal unit in a couple of different ways.  First, we'll use the provided identifier to count the number of events in each unit.
+
+Here's a choropleth of the 2010 events by community area:
+
+
+```{r agg_id}
+#' Drop crime geometry, then group by community area ID and count observations
+#' by community area. Merge into community area geometry, print a preview of the
+#' results, then map by count.
+geo.crime.no_mdw %>% 
+  filter(year == 2010) %>% 
+  st_drop_geometry() %>% 
+  group_by(id_community) %>% 
+  count(name = 'n_crimes') %>% 
+  ungroup() %>% 
+  left_join(l.geo.chi_admin_pol$admin$comm,
+            .,
+            by = c('id_comm_area' = 'id_community')) %>% 
+  print(n = 3) %>% 
+  mapview(layer.name = 'Count of Events (2010)',
+          zcol       = 'n_crimes')
+```
+
+A second strategy is to use a spatial join to identify which areal unit each event occurred in.  This is often useful because the provided administrative identifiers do not always comport with the provided coordinates; while either data point could be incorrect (or both could be), without having additional information about the data-generating process (how exactly are the coordinates obtained?), we must decide which value to use, the provided value or the one resulting from the spatial join.  Here we will do the latter, especially because it affords us the opportunity to try additional techniques.
+
+We'll identify points with their respective community areas with a three-step process:
+
+1. Find points clearly within an areal unit's boundaries with a standard spatial join
+1. Find points along an areal unit's boundary using simplified geometry and a spatial join
+1. Find points just outside the periphery using a buffer and a spatial join
+
+In the first step, a simple spatial join is used to identify which polygon covers each point.  Those uncovered by any polygon will be addressed in the next two steps.
+
+
+```{r comm_area_join_g1}
+#' Group 1: Uncontroversial: points within unaltered polygons.
+(geo.crime.comm.g1 <- 
+  geo.crime.no_mdw %>% 
+  st_join(l.geo.chi_admin_pol$admin$com,
+          st_covered_by,
+          duplicate_edges = FALSE,
+          left            = FALSE)) %>% 
+  select(id_crime, id_community, id_comm_area) %>% 
+  print(n = 3) %>% 
+  sample_n(500) %>% 
+  mapview(cex        = 3,
+          layer.name = 'Interior Events') +
+  mapview(l.geo.chi_admin_pol$admin$comm,
+          col.region = '#999',
+          layer.name = 'Community Areas',
+          legend     = FALSE)
+
+#' `TRUE`, as hoped: no duplicates.
+st_drop_geometry(geo.crime.comm.g1) %>% 
+  distinct(id_crime) %>% 
+  nrow() == 
+  nrow(geo.crime.comm.g1)
+```
+
+Next, we simplify the Community Area boundaries by reducing the fraction of vertices in each polygon and attempting to snap adjacent boundaries together, thus catching some points that are not quite on a border.  (Note that for the Community Area borders, this step is not strictly necessary; we could skip to the next technique with equivalent results, but again, this affords us the opportunity to try a new technique.)  This step is catching points lying along the perimeter.
+
+
+```{r comm_area_perimeter_g2}
+#' Catch with snapped, simplified boundaries.
+(geo.crime.comm.g2 <- 
+  geo.crime.no_mdw %>% 
+  filter(!(id_crime %in% geo.crime.comm.g1$id_crime)) %>% # 5325
+  st_join(l.geo.chi_admin_pol$admin$com %>% 
+            rmapshaper::ms_simplify(keep = 0.025), # 3051
+          st_covered_by,
+          duplicate_edges = FALSE,
+          left            = FALSE)) %>% 
+  select(id_crime, id_community, id_comm_area) %>% 
+  print(n = 3) %>% 
+  sample_n(500) %>% 
+  mapview(layer.name = 'Perimeter Events') +
+  mapview(l.geo.chi_admin_pol$admin$comm %>% 
+            rmapshaper::ms_simplify(keep = 0.025),
+          col.region = '#999',
+          layer.name = 'Community Areas',
+          legend     = FALSE)
+
+#' `TRUE`, as hoped: no duplicates.
+st_drop_geometry(geo.crime.comm.g2) %>% 
+  distinct(id_crime) %>% 
+  nrow() ==
+  nrow(geo.crime.comm.g2)
+```
+
+```{r}
+mapview(l.geo.chi_admin_pol$admin$comm %>% 
+            rmapshaper::ms_simplify(keep = 0.025),
+          col.region = '#999',
+          layer.name = 'Community Areas',
+          legend     = FALSE) +
+  mapview(l.geo.chi_admin_pol$admin$comm,
+          col.region = '#00ced1',
+          layer.name = 'Community Areas',
+          legend     = FALSE)
+```
+
+
+Now we'll use a buffer---50m, or [about the width of 14 lanes of traffic](https://nacto.org/publication/urban-street-design-guide/street-design-elements/lane-width/)---to identify most of the remainder of the points, which are slightly beyond the city boundaries.  This distance is somewhat arbitrary and should be adjusted depending on the specific dataset and context.
+
+
+```{r comm_area_periphery}
+#' Catch remainder with buffer.
+(geo.crime.comm.g3 <- 
+  geo.crime.no_mdw %>% 
+  filter(!(id_crime %in% geo.crime.comm.g1$id_crime),
+         !(id_crime %in% geo.crime.comm.g2$id_crime)) %>%
+    st_join(l.geo.chi_admin_pol$admin$com %>% 
+              st_buffer(50/111320), #' about 164', ≈ width of 14 traffic lanes
+          st_covered_by,
+          duplicate_edges = FALSE,
+          left            = FALSE)) %>% 
+  select(id_crime, id_community, id_comm_area) %>%
+  print(n = 3) %>%
+  sample_n(500) %>%
+  mapview(layer.name = 'Events Beyond<br>the Perimeter') +
+  mapview(l.geo.chi_admin_pol$admin$comm,
+          col.region = '#999',
+          layer.name = 'Community Areas',
+          legend     = FALSE)
+
+
+#' `TRUE`, as hoped: no duplicates.
+st_drop_geometry(geo.crime.comm.g3) %>% 
+  distinct(id_crime) %>% 
+  nrow() ==
+  nrow(geo.crime.comm.g3)
+
+
+#' Stack results.
+geo.crime.comm.id <- 
+  bind_rows(geo.crime.comm.g1, geo.crime.comm.g2, geo.crime.comm.g3) %>% 
+  remove_rownames()
+
+
+#' All points identified.
+geo.crime.no_mdw %>% 
+  st_drop_geometry() %>% 
+  anti_join(geo.crime.comm.id, by = 'id_crime')
+```
+
+
+Now that we've identified every point with its corresponding Community Area, let's see how many do not match with the police-assigned value: there are over 36,000 such points; they largely seem to fall along borders between abutting Community Areas.
+
+
+```{r mismatch}
+#' Mismatch between the provided identifier and the spatial join results.
+geo.crime.comm.id %>% 
+  filter(id_community != id_comm_area) %>% 
+  select(id_crime, id_community, id_comm_area) %>% 
+  print(n = 3) %>% 
+  sample_n(500) %>% 
+  mapview(cex        = 3,
+          layer.name = 'Mismatched Community Area') +
+  mapview(l.geo.chi_admin_pol$admin$comm,
+          col.region = '#999',
+          layer.name = 'Community Areas',
+          legend     = FALSE)
+```
+
+
+Now we'll write the results for exploration in the next script.
+
+
+```{r save}
+glue('geo--crime--identified-Community-Area') %>% 
+  f.write_qs2(geo.crime.comm.id, 'data', .)
+```

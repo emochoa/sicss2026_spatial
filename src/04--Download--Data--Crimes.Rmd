@@ -1,0 +1,97 @@
+---
+title: "04 - Download Crime Data"
+output: html_document
+---
+
+
+This script downloads the necessary crime data from the [Chicago Data Portal](data.cityofchicago.org), then prepares the data for further exploration.
+
+We will explore deprivation-of-property crimes taking place between 2010 and 2024. These are those with a primary type of burglary, deceptive practice (but only thefts by lessees or of mislaid property), motor vehicle theft, robbery, or theft (but non identity theft).
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#' Load libraries, constants, and functions.
+source('functions/f03c--data--crimes.R')
+
+# #' About 5-7 minutes.
+tictoc::tic()
+df.crime_raw <- f.crime_raw(FALSE, Q.CRIME)
+tictoc::toc()
+
+#' Chicago city boundaries.
+geo.chi <-
+  dir('data', 'geo--chicago-city', full.names = TRUE) %>%
+  qs2::qs_read()
+```
+
+
+Having downloaded the dataset from the Chicago Data Portal's API, we'll prepare it for further analysis. First, we'll add part-of-date elements for year, quarter, month, and day-of-week.
+
+
+```{r part_of_date}
+#' Use the first ten observations for example code.
+df.crime_raw %>% 
+  head(10) %>% 
+  mutate(year    = year(date),
+         quarter = quarter(date),
+         month   = month(date),
+         weekday = wday(date),)
+```
+
+
+Now we want to do some minor recoding for the `description` variable. The goal is to group similar descriptions and use consistent terminology. Here are all seventy-two combinations of `type` and `desription` in the raw data:
+
+
+```{r distinct_type_description}
+df.crime_raw %>% 
+  distinct(type, description = str_sub(description, 1, 50)) %>% 
+  arrange(type, description) %>% 
+  print(n = nrow(.))
+```
+
+
+After recoding (see the `f.recode_description()` function definition for details), there are now only twenty-five combinations:
+
+
+```{r recode_description}
+df.crime_raw %>% 
+  distinct(type, description) %>% 
+  f.recode_description() %>% 
+  distinct(type, description) %>% 
+  arrange(type, description) %>% 
+  print(n = nrow(.))
+```
+
+
+We're also going to convert the data to spatial points so that we can map their locations (down to the block).  Let's apply the changes permanently.  Here's a map with a small sample of observations:
+
+
+```{r geo_clean_crime}
+#' Clean; convert to spatial points. Map a random sample of 500 observations.
+(geo.crime <- 
+  f.clean_crime(df.crime_raw) %>% 
+  f.geo_crime()) %>% 
+  sample_n(500) %>% 
+  print(n = 3) %>% 
+  mapview(cex        = 3,
+          layer.name = 'Sample of Events',
+          legend     = FALSE) +
+  mapview(geo.chi,
+          col.region = '#999',
+          layer.name = 'Chicago City Boundaries',
+          legend     = FALSE)
+```
+
+
+Finally, we'll save the dataset for use in future explorations.
+
+
+```{r write_geo_crime}
+#' Write to QS2 format with maximum compression.
+f.write_qs2(geo.crime,
+            'data',
+            'geo--crime--dep-prop--2010-2024',
+            n_threads = 12)
+```
