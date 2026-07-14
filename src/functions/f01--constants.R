@@ -5,9 +5,11 @@
 # CONSTANTS --------------------------------------------------------------------
 
 
-#' Date limits
-DATE.MIN <- ymd('2010-01-01')
-DATE.MAX <- ymd('2024-12-31')
+#' Date limits for crime download.
+DATE.MIN_1 <- ymd('2010-01-01')
+DATE.MAX_1 <- ymd('2010-12-31')
+DATE.MIN_2 <- ymd('2024-01-01')
+DATE.MAX_2 <- ymd('2024-12-31')
 
 
 #' Path to JSON file with Census API key.

@@ -54,7 +54,8 @@ Q.CRIME <-
   glue(
     "{URL.CRIME}?",
     "$select={VARS.CRIME}&",
-    "$where=date BETWEEN '{DATE.MIN}' AND '{DATE.MAX}' AND ",
+    "$where=((date BETWEEN '{DATE.MIN_1}' AND '{DATE.MAX_1}') OR ",
+           " (date BETWEEN '{DATE.MIN_2}' AND '{DATE.MAX_2}')) AND ",
            "date IS NOT NULL AND ",
            "(primary_type in('BURGLARY', 'MOTOR VEHICLE THEFT', 'ROBBERY') OR ",
                  "(primary_type='DECEPTIVE PRACTICE' AND ",
