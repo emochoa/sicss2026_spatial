@@ -146,16 +146,16 @@ The areal interpolation from Census tract to the various administrative and poli
 
 
 ```{r interpolation}
-#' Areal interpolation, original Census tracts to all administrative and police
-#' geometries.
+#' Areal interpolation, original Census tracts, by year, to all administrative
+#' and police geometries.
 tictoc::tic()
 l.geo.interpolated.chi_pol <- 
-  f.interpolate_census_chi_pol_all(l.geo.census.tract_orig,
+  f.interpolate_census_chi_pol_all(l.geo.census.tract_orig[c('2010', '2024')],
                                    l.geo.chi_pol.no_ord,
                                    suffix    = 'No-ORD',
-                                   n_threads = 8,
+                                   n_threads = 12,
                                    save      = TRUE)
-tictoc::toc() # 30s w/ 10 threads
+tictoc::toc() # 30s w/ 10 threads for all years; 13s for two years
 ```
 
 
