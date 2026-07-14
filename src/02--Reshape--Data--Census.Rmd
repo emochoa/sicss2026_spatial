@@ -27,11 +27,6 @@ The Census tracts can change shapes over time.  Here is an example in the South 
 
 
 ```{r map_south_loop_basic}
-#' Extracting the map from the map object is blocking the Viewer pane from
-#' receiving the map; forcing it to renders a too-short map, so increase the 
-#' Leaflet viewer height.
-mapviewOptions(leafletHeight = 575)
-
 #' Vector of layer names for 3301 tracts map.
 v.3301_layer_names <- c('2010-2019, raw',
                         '2020-2024, raw',
@@ -54,8 +49,7 @@ v.3301_layer_names <- c('2010-2019, raw',
           legend       = FALSE))@map %>% 
   leaflet::addLegend(colors  = PAL.CB[2:3],
                      labels  = v.3301_layer_names[1:2],
-                     opacity = 1) %>% 
-  htmltools::html_print()
+                     opacity = 1)
 ```
 
 
