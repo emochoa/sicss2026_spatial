@@ -152,8 +152,9 @@ tictoc::tic()
 l.geo.interpolated.chi_pol <- 
   f.interpolate_census_chi_pol_all(l.geo.census.tract_orig,
                                    l.geo.chi_pol.no_ord,
-                                   suffix = 'No-ORD',
-                                   save   = TRUE)
+                                   suffix    = 'No-ORD',
+                                   n_threads = 8,
+                                   save      = TRUE)
 tictoc::toc() # 30s w/ 10 threads
 ```
 

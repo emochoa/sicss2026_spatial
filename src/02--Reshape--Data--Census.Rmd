@@ -239,9 +239,6 @@ We can get a better idea of this by examining the population density of the trac
 
 
 ```{r map_south_loop_2019_2020, warning=FALSE}
-#' 
-mapviewOptions(leafletHeight = 575)
-
 #' Palette for South Loop population density.
 pal.5 <- viridisLite::viridis(5)
 
@@ -265,17 +262,15 @@ pal.5 <- viridisLite::viridis(5)
   split(.$year) %>% 
   mapview(alpha.regions = 1,
           at            = seq(0, 25, 5),
+          color         = 'white',
           col.regions   = pal.5,
           legend        = FALSE,
+          lwd           = 1.5,
           zcol          = 'pop_dns'))@map %>% 
   leaflet::addLegend(colors  = pal.5,
                      labels  = seq(5, 25, 5),
                      opacity = 1,
-                     title   = htmltools::HTML('Population<br>Density'))) %>% 
-  # #' Leaflet bug with count of individual `zcol` values
-  # suppressWarnings() %>% 
-  #' Force to `Viewer` pane
-  htmltools::html_print()
+                     title   = htmltools::HTML('Population<br>Density')))
 ```
 
 
@@ -301,11 +296,7 @@ To address this problem, I manually edited the 3301.01 tract in [QGIS](https://q
           legend        = FALSE))@map %>% 
   leaflet::addLegend(colors  = PAL.CB[2:5],
                      labels  = v.3301_layer_names,
-                     opacity = 1) %>%
-  htmltools::html_print()
-
-#' Restore default option.
-mapviewOptions(leafletHeight = NULL)
+                     opacity = 1)
 ```
 
 
@@ -360,8 +351,6 @@ We will not attempt to correct for this here, but it is a phenomenon that resear
 <br>
 
 
-
-
 #### Pre-processing --- All Years -- Dropping, Trimming, and Additional Issues
 
 
@@ -389,7 +378,7 @@ Having pre-processed the Census geometry, we are now ready to standardize the tr
 
 To reshape tract boundaries, we'll be using the [`areal`](https://chris-prener.github.io/areal/) library.  The interpolation both changes the shapes of the tracts and estimates the counts of Census variables within the new boundaries, meaning that values in a given area can be compared across years.
 
-The approach implemented here, which allows the user to specify variable names for the target and source IDs (necessary to re-use a single function in different interpolation scenarios), is not strictly compatible with the `areal` library as published.  To address the incompatibility, I made some minor changes to several functions in the `areal` library (see function comments for further details).
+The approach implemented here, which allows the user to specify variable names for the target and source IDs (necessary to re-use a single function in different interpolation scenarios) as strings, is not strictly compatible with the `areal` library as published.  To address the incompatibility, I made some minor changes to several functions in the `areal` library (see function comments for further details).
 
 
 ```{r message=FALSE, warning=FALSE}
@@ -425,7 +414,7 @@ geo.3301.01_orig <-
 ```
 
 
-`f.polygon_reshape()` standardizes areal unit shapes across all years.
+`f.polygon_reshape()` standardizes areal unit shapes across all years. For the sake of expediency, the rest of the tutorial will be limited to the years 2010 and 2024.
 
 
 ```{r polygon_reshape}
@@ -440,7 +429,7 @@ l.geo.census_chi_rshp <-
                     geo_chi          = geo.chi,
                     id_chi           = 'id_chicago',
                     save             = TRUE)
-tictoc::toc() # 70-120s with 10 threads
+tictoc::toc() # 70-120s with 10 threads for all years; 30s for two years
 ```
 
 

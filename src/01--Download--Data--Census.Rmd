@@ -60,7 +60,7 @@ Let's examine the structure of the API call.  It requires:
 * A Census API key, stored locally in a JSON file: `~/census_api_key.json`
 
 
-```{r api_call_str}
+```{r api_call_str, eval=FALSE}
 'https://api.census.gov/data/{yr}/acs/{survey}?get=NAME,{str_c(l_vars, collapse = ",")}&for={level}:*&in=state:{state}%20county:{str_c(county, collapse = ",")}&key={jsonlite::read_json(PTH.CENSUS_API_KEY)$key}'
 ```
 
@@ -155,7 +155,7 @@ We can download all fifteen years of Census datasets in one fell swoop with the 
 #' Download data from the Census API and save it.
 tictoc::tic()
 l.geo.census_cook <- f.acs5_longitudinal(V.YEARS_CENSUS, save = TRUE)
-tictoc::toc()
+tictoc::toc() # About 30s
 ```
 
 

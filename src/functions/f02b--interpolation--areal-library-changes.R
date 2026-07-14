@@ -1,8 +1,6 @@
 #' Adapt a number of functions in the `areal` library for more general use.
 
 
-
-
 # FUNCTIONS --------------------------------------------------------------------
 
 

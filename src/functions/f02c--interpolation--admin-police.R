@@ -1,8 +1,6 @@
 #' Interpolate Census data to administrative and police geometries.
 
 
-
-
 # SOURCE FILES -----------------------------------------------------------------
 
 
@@ -21,7 +19,6 @@ library(mapview)
 
 
 # FUNCTIONS --------------------------------------------------------------------
-
 
 
 f.trim_ohare <- function(l_geo_chi_pol, save = FALSE, n_threads = 10){
@@ -58,6 +55,7 @@ f.trim_ohare <- function(l_geo_chi_pol, save = FALSE, n_threads = 10){
   #' Area (O'Hare International Airport, ORD) to drop from each layer. Use a
   #' small buffer (0.5m; divide to approximate decimal degrees as we have turned
   #' off S2 processing) to clean up the edges; drop ID variable.
+  #' Decimal degrees estimation: stackoverflow.com/a/79437935
   geo_d16_ord <- 
     l_geo_chi_pol$police$beat %>%
     filter(id_district == 16, id_sector == 5) %>%
@@ -213,8 +211,7 @@ f.interpolate_census_chi_pol <- function(l_geo_census,
   v_variables <-
     l_geo_census[[1]] %>% 
     st_drop_geometry() %>% 
-    select(-c(GEOID, Name)) %>%
-                    # select(-any_of(c('GEOID', 'Name', id_admin_cutter))) %>% 
+    select(-c(GEOID, Name)) %>% 
     names()
   
   #' Extract years.

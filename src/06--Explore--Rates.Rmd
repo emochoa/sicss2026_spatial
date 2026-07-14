@@ -6,9 +6,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-source('functions/f00--general.R')
-
-library(mapview)
+source('functions/f05--explore--rates.R')
 
 #' Read in crime events identified by Community Area.
 geo.crime.comm <- 
@@ -20,9 +18,9 @@ l.geo.chi <- f.read_chi_admin()
 ```
 
 
-
-
 ```{r compute_rates}
+#' Aggregate events for the year 2010 by community area. Merge in Census data,
+#' then compute event rate per 100,000 residents and per 100 residents
 (geo.crime_agg.comm_2010 <- 
   geo.crime.comm %>% 
   filter(year == 2010) %>% 
@@ -32,37 +30,38 @@ l.geo.chi <- f.read_chi_admin()
   left_join(l.geo.chi$Admin$`Community-Area`$`2010`,
             .,
             by = 'id_comm_area') %>% 
-  mutate(rt.ev_10k   = n_events / pop.t * 10^4) %>% 
+  mutate(rt.ev_100k = n_events / pop.t * 10^5,
+         rt.ev_100  = n_events / pop.t * 100) %>% 
   f.proportions()) %>% 
   print(n = 3) %>% 
-  mapview(zcol = 'n_events')
-```
-
-
-```{r rt_ev_pop}
-#' Choropleth of crime rate per 100K, 2010
-mapview(geo.crime_agg.comm_2010,
-        layer.name = 'Event Rate per<br>10,000 Residents<br>(2010)',
-        zcol       = 'rt.ev_10k')
+  mapview(layer.name = 'Deprivation of Property<br>Crimes (2010)',
+          zcol       = 'n_events')
 ```
 
 
 ```{r map_rt_ev_pop}
+#' Choropleth of crime rate per 100 residents, 2010
+mapview(geo.crime_agg.comm_2010,
+        layer.name = 'Event Rate per<br>100 Residents<br>(2010)',
+        zcol       = 'rt.ev_100')
+```
+
+
+```{r map_rt_ev_pop_nat_brk}
 #' Use Jenks natural breaks for color bins:
 #' en.wikipedia.org/wiki/Jenks_natural_breaks_optimization
 geo.crime_agg.comm_2010 %>% 
-  mapview(at         = c(0, rgeoda::natural_breaks(6, .[, 'rt.ev_10k'])),
-          layer.name = 'Event Rate per<br>10,000 Residents<br>(2010)',
-          zcol       = 'rt.ev_10k')
+  mapview(at         = c(0, rgeoda::natural_breaks(6, .[, 'rt.ev_100'])),
+          layer.name = 'Event Rate per<br>100 Residents<br>(2010)',
+          zcol       = 'rt.ev_100')
 ```
-
 
 
 ```{r map_burglary_no_hsd}
 #' Map burglary events against residents without a high-school diploma, 2010-01.
 geo.crime.comm %>% 
   filter(type == 'BURGLARY', year == 2010, month == 1) %>% 
-  mapview(cex = 1,
+  mapview(cex        = 1,
           col.region = '#000',
           layer.name = 'Burglaries (2010 Jan.)') +
   mapview(l.geo.chi$Admin$`Community-Area`$`2010`,
@@ -71,17 +70,15 @@ geo.crime.comm %>%
 ```
 
 
-
 ```{r map_robbery_ymales}
 #' Map robbery events against proportion of young males, 2010-07.
 geo.crime.comm %>% 
   filter(type == 'ROBBERY', year == 2010, month == 7) %>% 
   mapview(alpha.region = 0.5,
-          cex = 0.5,
-          col.region = '#000',
-          layer.name = 'Burglaries (2010 July)') +
+          cex          = 0.5,
+          col.region   = '#000',
+          layer.name   = 'Burglaries (2010 July)') +
   mapview(l.geo.chi$Admin$`Community-Area`$`2010`,
           layer.name = 'Proportion of Adults<br>who are Young Males',
           zcol       = 'prop.ymales')
 ```
-

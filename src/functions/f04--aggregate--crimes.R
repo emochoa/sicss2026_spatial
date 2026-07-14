@@ -1,7 +1,7 @@
 #' Aggregate crimes by areal unit.
 
 
-#' Turn off S2 processing for negative buffer.
+#' Turn off S2 processing for negative buffer: stackoverflow.com/a/79437935
 sf::sf_use_s2(FALSE)
 
 
@@ -18,6 +18,7 @@ source('functions/f00--general.R')
 
 
 library(mapview)
+
 
 
 
@@ -49,29 +50,6 @@ f.filter_to_city <- function(geo_crime, geo_tracts){
 
 
 
-#' f.geo_chi_no_census <- function(l_geo_chi_admin_pol){
-#'   #' For a list of administrative and police geometries (polygons) with Census
-#'   #' data (multi-year), keep only the geometry.
-#'   
-#'   #' For results.
-#'   l_geo <- list()
-#'   
-#'   #' Loop through list, keeping only the geometry and identifiers.
-#'   for(nm_main in names(l_geo_chi_admin_pol)){
-#'     geo_main <- l_geo_chi_admin_pol[[nm_main]]
-#'     
-#'     for(nm in names(geo_main)){
-#'       l_geo[[nm_main]][[nm]] <- 
-#'         l_geo_chi_admin_pol[[nm_main]][[nm]][[1]] %>% 
-#'         select(any_of(matches('id_|community')))
-#'     }
-#'   }
-#'   
-#'   l_geo
-#' }
-
-
-
 f.drop_mdw_events <- function(geo_crime, geo_tracts_census){
   #' Drop MDW events according to tract geometry (with negative buffer applied),
   #' not beat ID (813).
@@ -87,15 +65,6 @@ f.drop_mdw_events <- function(geo_crime, geo_tracts_census){
     select(id_crime) %>% 
     anti_join(geo_crime, ., by = 'id_crime')
 }
-
-
-
-
-
-
-
-
-
 
 
 

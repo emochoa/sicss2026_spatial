@@ -1,8 +1,6 @@
 #' Download and clean Chicago administrative boundaries geometry.
 
 
-
-
 # SOURCE FILES -----------------------------------------------------------------
 
 

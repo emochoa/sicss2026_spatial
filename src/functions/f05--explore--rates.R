@@ -1,3 +1,25 @@
+#' Needed for exploring crime and demographics.
+
+
+# LIBRARIES --------------------------------------------------------------------
+
+
+library(mapview)
+
+
+
+
+# SOURCE FILES -----------------------------------------------------------------
+
+
+source('functions/f00--general.R')
+
+
+
+
+# FUNCTIONS --------------------------------------------------------------------
+
+
 f.read_chi_admin <- function(){
   #' Read in administrative geometry dataset and compute proportion variables.
   dir('data', 'ACS-5.+--Level-All-Administrative-Police', full.names = TRUE) %>%
@@ -6,13 +28,14 @@ f.read_chi_admin <- function(){
       lapply(l_geo_admin, function(l_geo_yrs){
         lapply(l_geo_yrs, function(geo){
           f.proportions(geo)
-        }
-        )
       }
-      )
+     )
     }
-    )
+   )
+  }
+ )
 }
+
 
 
 

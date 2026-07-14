@@ -58,21 +58,8 @@ YR.RESTORE_3301.01 <- '2024'
 PAL.CB <- palette.colors(palette = 'Okabe-Ito')
 
 
-#' Buffer distance for catching events along the periphery.
-M.DIST.BUFF <- 15
-
-
 #' Date new Police geometry took effect.
 DATE.POL_NEW <- ymd('20121219')
-
-
-#' Dates for ward boundaries.
-L.DATE.WARD <- list(ward03_15 = list(min = ymd('20030505'),
-                                     max = ymd('20150517')),
-                    ward15_23 = list(min = ymd('20150518'),
-                                     max = ymd('20230514')),
-                    ward23    = list(min = ymd('20230515'),
-                                     max = DATE.MAX))
 
 
 #' Paths to files with edited geometry for the '3301' Census tracts.

@@ -19,17 +19,14 @@ geo.crime <-
   rename(id_community = community)
 
 #' Chicago administrative and police boundaries with Census data.
-#' *PROBLEM WITH* `id_district` *AND* `id_district.1`  *************************
 l.geo.chi_admin_pol.census <- 
   dir('data', 'Census.*All-Administrative-Police', full.names = TRUE) %>% 
   qs2::qs_read()
 
-
 #' Chicago administrative and police boundaries without Census data.
-l.geo.chi_admin_pol <- # f.geo_chi_no_census(l.geo.chi_admin_pol.census)
+l.geo.chi_admin_pol <- 
   dir('data', 'geo--chicago-admin-police--no-ORD', full.names = TRUE) %>% 
   qs2::qs_read()
-
 
 #' Census datasets.
 l.geo.tracts.census <- 
@@ -168,9 +165,9 @@ A second strategy is to use a spatial join to identify which areal unit each eve
 
 We'll identify points with their respective community areas with a three-step process:
 
-1. Find points clearly within an areal unit's boundaries with a standard spatial join
-1. Find points along an areal unit's boundary using simplified geometry and a spatial join
-1. Find points just outside the periphery using a buffer and a spatial join
+* Find points clearly within an areal unit's boundaries with a standard spatial join
+* Find points along an areal unit's boundary using simplified geometry and a spatial join
+* Find points just outside the periphery using a buffer and a spatial join
 
 In the first step, a simple spatial join is used to identify which polygon covers each point.  Those uncovered by any polygon will be addressed in the next two steps.
 
@@ -229,18 +226,6 @@ st_drop_geometry(geo.crime.comm.g2) %>%
   distinct(id_crime) %>% 
   nrow() ==
   nrow(geo.crime.comm.g2)
-```
-
-```{r}
-mapview(l.geo.chi_admin_pol$admin$comm %>% 
-            rmapshaper::ms_simplify(keep = 0.025),
-          col.region = '#999',
-          layer.name = 'Community Areas',
-          legend     = FALSE) +
-  mapview(l.geo.chi_admin_pol$admin$comm,
-          col.region = '#00ced1',
-          layer.name = 'Community Areas',
-          legend     = FALSE)
 ```
 
 

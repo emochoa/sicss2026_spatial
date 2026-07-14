@@ -12,11 +12,11 @@ library(mapview)
 # SETTINGS ---------------------------------------------------------------------
 
 
-
 #' Turn off S2 processing for negative buffer: stackoverflow.com/a/79437935
 #' Also increases processing speed for geometric operations. Because we are
 #' focusing on a small area of the globe, this is acceptable.
 sf::sf_use_s2(FALSE)
+
 
 
 
