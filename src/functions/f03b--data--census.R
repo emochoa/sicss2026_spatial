@@ -429,6 +429,8 @@ f.polygon_reshape <-
       v_years,
       mc.silent = FALSE,
       function(year){
+        message(year)
+        
         f.interpolate(geo_dough  = l_geo[[year]],
                       geo_cutter = geo_template %>% 
                                      transmute(ID = GEOID),
