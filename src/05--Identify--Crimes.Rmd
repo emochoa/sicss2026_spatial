@@ -214,7 +214,8 @@ Next, we simplify the Community Area boundaries by reducing the fraction of vert
   print(n = 3) %>% 
   # sample_n(500) %>% #' Fails in some installations
   head(500) %>% 
-  mapview(layer.name = 'Perimeter Events') +
+  mapview(cex        = 3,
+          layer.name = 'Perimeter Events') +
   mapview(l.geo.chi_admin_pol$admin$comm %>% 
             rmapshaper::ms_simplify(keep = 0.025),
           col.region = '#999',
@@ -245,8 +246,9 @@ Now we'll use a buffer---50m, or [about the width of 14 lanes of traffic](https:
           left            = FALSE)) %>% 
   select(id_crime, id_community, id_comm_area) %>%
   print(n = 3) %>%
-  sample_n(500) %>%
-  mapview(layer.name = 'Events Beyond<br>the Perimeter') +
+  head(500) %>% 
+  mapview(cex        = 3,
+          layer.name = 'Events Beyond<br>the Perimeter') +
   mapview(l.geo.chi_admin_pol$admin$comm,
           col.region = '#999',
           layer.name = 'Community Areas',

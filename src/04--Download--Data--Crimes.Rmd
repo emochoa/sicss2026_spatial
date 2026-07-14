@@ -15,9 +15,10 @@ knitr::opts_chunk$set(echo = TRUE)
 #' Load libraries, constants, and functions.
 source('functions/f03c--data--crimes.R')
 
-# #' About 5-7 minutes.
+#' Download deprivation-of-property crimes, 2010-2024.
+#' About 1-2 minutes.
 tictoc::tic()
-df.crime_raw <- f.crime_raw(TRUE, Q.CRIME)
+df.crime_raw <- f.crime_raw(download = TRUE, query = Q.CRIME)
 tictoc::toc()
 
 #' Chicago city boundaries.
@@ -93,5 +94,5 @@ Finally, we'll save the dataset for use in future explorations.
 f.write_qs2(geo.crime,
             'data',
             'geo--crime--dep-prop--2010-2024',
-            n_threads = 12)
+            n_threads = 10)
 ```
