@@ -215,7 +215,8 @@ Next, we simplify the Community Area boundaries by reducing the fraction of vert
           left            = FALSE)) %>% 
   select(id_crime, id_community, id_comm_area) %>% 
   print(n = 3) %>% 
-  sample_n(500) %>% 
+  # sample_n(500) %>% #' Fails in some installations
+  head(500) %>% 
   mapview(layer.name = 'Perimeter Events') +
   mapview(l.geo.chi_admin_pol$admin$comm %>% 
             rmapshaper::ms_simplify(keep = 0.025),
