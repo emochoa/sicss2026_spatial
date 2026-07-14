@@ -19,7 +19,7 @@ l.geo.census_cook <-
   qs2::qs_read()
 
 #' Either download & save Chicago city geometry (`T`), or read it locally (`F`).
-geo.chi <- f.read_chi_local_remote(download = FALSE)
+geo.chi <- f.read_chi_local_remote(download = TRUE)
 ```
 
 
@@ -431,9 +431,10 @@ geo.3301.01_orig <-
 ```{r polygon_reshape}
 #' Reshape polygons and interpolate values to new shapes. Restore '3301' tracts
 #' to the newest Census geometry.
+#' Limit to first and last year to save time.
 tictoc::tic()
 l.geo.census_chi_rshp <-
-  f.polygon_reshape(l_geo            = l.geo.census_chi,
+  f.polygon_reshape(l_geo            = l.geo.census_chi[c('2010', '2024')],
                     year_templ       = YR.RESHAPE_TEMPLATE,
                     geo_3301.01_orig = l.geo.census_cook[[YR.RESTORE_3301.01]],
                     geo_chi          = geo.chi,

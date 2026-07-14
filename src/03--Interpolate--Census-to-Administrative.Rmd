@@ -33,7 +33,7 @@ Having access to multiple levels and temporal periods of administrative units af
 
 ```{r read_administrative}
 #' Named list of all Chicago administrative and police geometries.
-l.geo.admin_pol <- f.read_geo_chi_admin_pol_local_remote(download = FALSE)
+l.geo.admin_pol <- f.read_geo_chi_admin_pol_local_remote(download = TRUE)
 ```
 
 

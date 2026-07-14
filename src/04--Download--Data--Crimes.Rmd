@@ -17,7 +17,7 @@ source('functions/f03c--data--crimes.R')
 
 # #' About 5-7 minutes.
 tictoc::tic()
-df.crime_raw <- f.crime_raw(FALSE, Q.CRIME)
+df.crime_raw <- f.crime_raw(TRUE, Q.CRIME)
 tictoc::toc()
 
 #' Chicago city boundaries.
